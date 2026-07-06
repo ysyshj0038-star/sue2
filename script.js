@@ -1,6 +1,7 @@
 const referenceDate = new Date("2026-07-06T00:00:00+09:00");
+const scheduleEndpoint = "/api/schedule";
 
-const events = [
+const fallbackEvents = [
   { start: "2026-06-09", end: "2026-06-15", title: "기말고사" },
   { start: "2026-06-16", end: "2026-06-22", title: "보강기간" },
   { start: "2026-06-22", end: "2026-07-03", title: "재입학 신청기간" },
@@ -12,6 +13,8 @@ const events = [
   { start: "2026-07-13", end: "2026-07-17", title: "복학기간" },
   { start: "2026-07-29", end: "2026-07-31", title: "예비수강 신청기간" },
 ];
+
+let events = [...fallbackEvents];
 
 const state = {
   filter: "all",
@@ -137,6 +140,15 @@ function enrichEvents() {
 }
 
 function renderSummary(enrichedEvents) {
+  if (enrichedEvents.length === 0) {
+    elements.totalCount.textContent = "0";
+    elements.activeCount.textContent = "0";
+    elements.upcomingCount.textContent = "0";
+    elements.longestDays.textContent = "0일";
+    elements.longestTitle.textContent = "-";
+    return;
+  }
+
   const activeStatuses = new Set(["active", "today"]);
   const active = enrichedEvents.filter((event) => activeStatuses.has(event.status));
   const upcoming = enrichedEvents.filter((event) => event.status === "upcoming");
@@ -145,7 +157,6 @@ function renderSummary(enrichedEvents) {
   ), enrichedEvents[0]);
 
   elements.todayLabel.textContent = "2026.07.06";
-  elements.todayHint.textContent = "스프레드시트 기준 일정 상태를 계산합니다.";
   elements.totalCount.textContent = enrichedEvents.length;
   elements.activeCount.textContent = active.length;
   elements.upcomingCount.textContent = upcoming.length;
@@ -244,6 +255,46 @@ function render() {
   renderFocus(enrichedEvents);
 }
 
+function isValidEvent(event) {
+  return event
+    && /^\d{4}-\d{2}-\d{2}$/.test(event.start)
+    && /^\d{4}-\d{2}-\d{2}$/.test(event.end)
+    && typeof event.title === "string"
+    && event.title.trim();
+}
+
+async function loadSchedule() {
+  elements.todayHint.textContent = "Google Sheet에서 최신 일정을 불러오는 중입니다.";
+
+  try {
+    const response = await fetch(scheduleEndpoint, {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Schedule API responded with ${response.status}`);
+    }
+
+    const data = await response.json();
+    const sheetEvents = Array.isArray(data.events) ? data.events.filter(isValidEvent) : [];
+
+    if (sheetEvents.length === 0) {
+      throw new Error("No valid events were found in the sheet.");
+    }
+
+    events = sheetEvents;
+    elements.todayHint.textContent = `Google Sheet와 연동됨 · ${sheetEvents.length}개 일정`;
+  } catch (error) {
+    console.warn(error);
+    events = [...fallbackEvents];
+    elements.todayHint.textContent = "시트 연동 실패로 기본 예시 데이터를 표시 중입니다.";
+  }
+
+  render();
+}
+
 elements.searchInput.addEventListener("input", (event) => {
   state.search = event.target.value;
   render();
@@ -259,3 +310,4 @@ elements.filterButtons.forEach((button) => {
 });
 
 render();
+loadSchedule();
